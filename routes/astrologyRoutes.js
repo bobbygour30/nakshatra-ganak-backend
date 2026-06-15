@@ -317,6 +317,10 @@ router.post('/download-pdf', async (req, res) => {
     const { kundliData, panchangData, userDetails } = req.body;
     
     console.log(' Generating PDF for:', userDetails?.name || 'User');
+    console.log(  
+  "Panchang Data:",
+  JSON.stringify(panchangData, null, 2)
+);
 
     // Create PDF document
     const doc = new PDFDocument({
@@ -690,22 +694,35 @@ doc.y = infoY + 110;
       { label: 'Ritu', value: getValue(panchangData, ['ritu'], 'N/A') },
       { label: 'Ayana', value: getValue(panchangData, ['ayana'], 'N/A') }
     ];
-    
     let panchangY = doc.y;
-    for (let i = 0; i < panchangItems.length; i += 2) {
-      if (panchangY > 750) {
-        doc.addPage();
-        panchangY = 70;
-        addSection('DAILY PANCHANG (Continued)');
-      }
-      doc.text(`${panchangItems[i].label}: ${panchangItems[i].value}`, 50, panchangY);
-      if (panchangItems[i + 1]) {
-        doc.text(`${panchangItems[i + 1].label}: ${panchangItems[i + 1].value}`, 300, panchangY);
-      }
-      panchangY = doc.y + 18;
-    }
-    
-    doc.y = panchangY;
+
+for (let i = 0; i < panchangItems.length; i += 2) {
+  if (panchangY > 750) {
+    doc.addPage();
+    panchangY = 70;
+    addSection('DAILY PANCHANG (Continued)');
+    panchangY = doc.y + 10; // heading ke niche start
+  }
+
+  doc.text(
+    `${panchangItems[i].label}: ${panchangItems[i].value}`,
+    50,
+    panchangY
+  );
+
+  if (panchangItems[i + 1]) {
+    doc.text(
+      `${panchangItems[i + 1].label}: ${panchangItems[i + 1].value}`,
+      300,
+      panchangY
+    );
+  }
+
+  // IMPORTANT
+  panchangY += 20;
+}
+
+doc.y = panchangY;
 
     // ========== FOOTER ==========
     doc.moveDown(2);
