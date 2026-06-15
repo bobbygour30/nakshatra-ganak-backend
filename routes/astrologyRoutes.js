@@ -297,26 +297,6 @@ router.post('/generate', protect, async (req, res) => {
 });
 
 // ✅ Ek baar chalao, phir hata dena - Sirf old charts ko fix karne ke liye
-router.post('/fix-old-charts', protect, async (req, res) => {
-  try {
-    const user = await User.findById(req.user._id);
-    let fixed = 0;
-    
-    for (let i = 0; i < user.savedCharts.length; i++) {
-      if (!user.savedCharts[i].isPaid) {
-        user.savedCharts[i].isPaid = true;
-        fixed++;
-      }
-    }
-    
-    await user.save();
-    res.json({ success: true, message: `Fixed ${fixed} charts`, total: user.savedCharts.length });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-
 // ================== DOWNLOAD PDF WITH PDFKIT ==================
 
 // Helper function
@@ -358,14 +338,14 @@ router.post('/download-pdf', async (req, res) => {
     doc.pipe(res);
 
     // ========== COLORS ==========
-    const primaryColor = '#2C3E50';
-    const secondaryColor = '#8E44AD';
-    const accentColor = '#E74C3C';
-    const successColor = '#27AE60';
-    const textColor = '#333333';
-    const lightText = '#7F8C8D';
-    const borderColor = '#BDC3C7';
-    const whiteColor = '#FFFFFF';
+    const primaryColor = '#000000';
+    const secondaryColor = '#000000';
+    const accentColor = '#000000';
+    const successColor = '#000000';
+    const textColor = '#000000';
+    const lightText = '#000000';
+    const borderColor = '#000000';
+    const whiteColor = '#000000';
 
     // ========== HEADER SECTION ==========
     // Main Title
@@ -396,27 +376,68 @@ router.post('/download-pdf', async (req, res) => {
     doc.moveDown(1);
 
     // ========== USER INFORMATION SECTION ==========
-    doc.rect(50, doc.y, 495, 70)
-       .fillAndStroke(secondaryColor, secondaryColor);
-    
-    // User Name
-    doc.fillColor(whiteColor)
-       .fontSize(14)
-       .font('Helvetica-Bold')
-       .text((userDetails?.name || 'User'), 60, doc.y + 18);
-    
-    // User Email
-    doc.fontSize(10)
-       .font('Helvetica')
-       .text(`Email: ${userDetails?.email || 'Not provided'}`, 60, doc.y + 38);
-    
-    // Birth Details
-    if (userDetails?.birthDetails) {
-      const bd = userDetails.birthDetails;
-      doc.text(`Date of Birth: ${bd.date}/${bd.month}/${bd.year}`, 60, doc.y + 55);
-      doc.text(`Time of Birth: ${bd.hour}:${String(bd.minute || 0).padStart(2, '0')}`, 260, doc.y + 38);
-      doc.text(`Location: ${bd.latitude}, ${bd.longitude}`, 260, doc.y + 55);
-    }
+const infoY = doc.y;
+
+// Outer Border
+doc.rect(50, infoY, 495, 90)
+   .lineWidth(1)
+   .strokeColor('#000000')
+   .stroke();
+
+// Heading
+doc.fontSize(13)
+   .font('Helvetica-Bold')
+   .fillColor('#000000')
+   .text('PERSONAL INFORMATION', 60, infoY + 10);
+
+// Divider Line
+doc.moveTo(60, infoY + 30)
+   .lineTo(535, infoY + 30)
+   .stroke();
+
+// Left Column
+doc.fontSize(10)
+   .font('Helvetica');
+
+doc.text(
+  `Name: ${userDetails?.name || 'User'}`,
+  60,
+  infoY + 42
+);
+
+doc.text(
+  `Email: ${userDetails?.email || 'Not Provided'}`,
+  60,
+  infoY + 62
+);
+
+// Right Column
+if (userDetails?.birthDetails) {
+  const bd = userDetails.birthDetails;
+
+  doc.text(
+    `DOB: ${bd.date}/${bd.month}/${bd.year}`,
+    300,
+    infoY + 42
+  );
+
+  doc.text(
+    `Birth Time: ${bd.hour}:${String(
+      bd.minute || 0
+    ).padStart(2, '0')}`,
+    300,
+    infoY + 62
+  );
+
+  doc.text(
+    `Location: ${bd.latitude}, ${bd.longitude}`,
+    60,
+    infoY + 82
+  );
+}
+
+// Move cursor below box
+doc.y = infoY + 110;
     
     doc.moveDown(3);
 
@@ -425,9 +446,9 @@ router.post('/download-pdf', async (req, res) => {
     const ascendantLord = getValue(kundliData, ['ascendant_lord', 'lagna_lord'], 'N/A');
     
     doc.rect(50, doc.y, 495, 70)
-       .fill(primaryColor);
+       .stroke();
     
-    doc.fillColor(whiteColor)
+    doc.fillColor(textColor)
        .fontSize(14)
        .font('Helvetica-Bold')
        .text('LAGNA (ASCENDANT)', 60, doc.y + 20, { align: 'center', width: 475 });
@@ -447,9 +468,9 @@ router.post('/download-pdf', async (req, res) => {
     const isManglik = (manglik === 'Yes' || manglik === 'Manglik');
     
     doc.rect(50, doc.y, 495, 35)
-       .fill(isManglik ? accentColor : successColor);
+       .stroke();
     
-    doc.fillColor(whiteColor)
+    doc.fillColor(textColor)
        .fontSize(12)
        .font('Helvetica-Bold')
        .text(`MANGLIK DOSHA: ${isManglik ? 'Manglik' : 'Non-Manglik'}`, { align: 'center', width: 495 });
@@ -458,7 +479,7 @@ router.post('/download-pdf', async (req, res) => {
 
     // ========== SECTION HELPER FUNCTION ==========
     const addSection = (title) => {
-      doc.fillColor(primaryColor)
+      doc.fillColor('#000000')
          .fontSize(13)
          .font('Helvetica-Bold')
          .text(title);
@@ -537,7 +558,7 @@ router.post('/download-pdf', async (req, res) => {
     
     // Table Header
     let tableY = doc.y;
-    doc.fillColor(primaryColor)
+    doc.fillColor('#000000')
        .fontSize(9)
        .font('Helvetica-Bold')
        .text('Planet', 50, tableY)
@@ -697,7 +718,7 @@ router.post('/download-pdf', async (req, res) => {
     
     doc.moveDown(0.5);
     
-    doc.fillColor(lightText)
+    doc.fillColor('#000000')
        .fontSize(8)
        .font('Helvetica')
        .text('This is a computer-generated kundli report based on Vedic astrology calculations.', { align: 'center' })
@@ -718,6 +739,8 @@ router.post('/download-pdf', async (req, res) => {
     }
   }
 });
+
+
 // ================== SAVE PURCHASED KUNDLI ==================
 router.post('/save-purchased-kundli', protect, async (req, res) => {
   try {
