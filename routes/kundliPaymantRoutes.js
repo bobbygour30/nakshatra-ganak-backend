@@ -13,17 +13,21 @@ const razorpay = new Razorpay({
 // @route   POST /api/kundlipayments/create-order
 // @desc    Create Razorpay order
 // @access  Private
+
+const TEST_MODE = true;
+
 router.post('/create-order', protect, async (req, res) => {
   try {
+    
     // ✅ Testing mode: ₹1 (100 paise)
     // Production mode: ₹99 (9900 paise)
     const TESTING_AMOUNT = 1; // ₹1 for testing
     const PRODUCTION_AMOUNT = 99; // ₹99 for production
-    
+
     // Use 1 rupee for testing
     const amount = TESTING_AMOUNT;
     const { currency = 'INR' } = req.body;
-    
+
     const options = {
       amount: amount * 100, // Amount in paise (1 * 100 = 100 paise = ₹1)
       currency: currency,
@@ -34,11 +38,11 @@ router.post('/create-order', protect, async (req, res) => {
         is_test: 'true'
       }
     };
-    
+
     const order = await razorpay.orders.create(options);
-    
+
     console.log(`✅ Order created: ₹${amount} for testing`);
-    
+
     res.json({
       success: true,
       id: order.id,
@@ -52,6 +56,8 @@ router.post('/create-order', protect, async (req, res) => {
   }
 });
 
+
+
 // @route   POST /api/kundlipayments/verify-payment
 // @desc    Verify Razorpay payment
 // @access  Private
@@ -62,15 +68,15 @@ router.post('/verify-payment', protect, async (req, res) => {
       razorpay_payment_id,
       razorpay_signature
     } = req.body;
-    
+
     const body = razorpay_order_id + '|' + razorpay_payment_id;
     const expectedSignature = crypto
       .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
       .update(body.toString())
       .digest('hex');
-    
+
     const isAuthentic = expectedSignature === razorpay_signature;
-    
+
     if (isAuthentic) {
       console.log(`✅ Payment verified successfully for order: ${razorpay_order_id}`);
       res.json({
@@ -94,7 +100,7 @@ router.post('/verify-payment', protect, async (req, res) => {
 router.post('/set-mode', protect, async (req, res) => {
   try {
     const { mode } = req.body; // 'test' or 'production'
-    
+
     // Store mode in a global variable or database
     // For now, just return success
     res.json({
