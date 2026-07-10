@@ -13,38 +13,50 @@ const razorpay = new Razorpay({
 // @route   POST /api/kundlipayments/create-order
 // @desc    Create Razorpay order
 // @access  Private
+
+const TEST_MODE = true;
+
 router.post('/create-order', protect, async (req, res) => {
   try {
-    // Fixed amount: ₹99 (9900 paise)
-    const AMOUNT = 99;
+    
+    // ✅ Testing mode: ₹1 (100 paise)
+    // Production mode: ₹99 (9900 paise)
+    const TESTING_AMOUNT = 1; // ₹1 for testing
+    const PRODUCTION_AMOUNT = 99; // ₹99 for production
+
+    // Use 1 rupee for testing
+    const amount = TESTING_AMOUNT;
     const { currency = 'INR' } = req.body;
 
     const options = {
-      amount: AMOUNT * 100, // Amount in paise (99 * 100 = 9900 paise = ₹99)
+      amount: amount * 100, // Amount in paise (1 * 100 = 100 paise = ₹1)
       currency: currency,
       receipt: `receipt_${Date.now()}`,
       payment_capture: 1,
       notes: {
-        purpose: 'Kundli Generation'
+        purpose: 'Kundli Generation',
+        is_test: 'true'
       }
     };
 
     const order = await razorpay.orders.create(options);
 
-    console.log(`✅ Order created: ₹${AMOUNT}`);
+    console.log(`✅ Order created: ₹${amount} for testing`);
 
     res.json({
       success: true,
       id: order.id,
       amount: order.amount,
       currency: order.currency,
-      amount_in_rupees: AMOUNT
+      amount_in_rupees: amount
     });
   } catch (err) {
     console.error('Order creation error:', err);
     res.status(500).json({ success: false, message: 'Failed to create order' });
   }
 });
+
+
 
 // @route   POST /api/kundlipayments/verify-payment
 // @desc    Verify Razorpay payment
@@ -81,6 +93,23 @@ router.post('/verify-payment', protect, async (req, res) => {
   } catch (err) {
     console.error('Verification error:', err);
     res.status(500).json({ success: false, message: 'Verification failed' });
+  }
+});
+
+// ✅ Optional: Switch between test and production mode
+router.post('/set-mode', protect, async (req, res) => {
+  try {
+    const { mode } = req.body; // 'test' or 'production'
+
+    // Store mode in a global variable or database
+    // For now, just return success
+    res.json({
+      success: true,
+      message: `Mode set to ${mode}`,
+      current_amount: mode === 'test' ? 1 : 99
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
