@@ -66,13 +66,13 @@ router.post('/generate', async (req, res) => {
       place: city || 'Unknown',
       chart_style: 'NORTH_INDIAN',
       footer_link: process.env.COMPANY_DOMAIN || 'nakshatraganak.com',
-      logo_url: process.env.COMPANY_LOGO_URL || '',
+      logo_url: 'https://nakshatraganak.com/assets/logo-BXY0wJwW.jpeg',
       company_name: process.env.COMPANY_NAME || 'Nakshatra Ganak',
       company_info: process.env.COMPANY_INFO || 'Vedic Astrology Services',
       domain_url: process.env.COMPANY_DOMAIN_URL || 'https://nakshatraganak.com',
       company_email: process.env.COMPANY_EMAIL || 'info@nakshatraganak.com',
       company_landline: process.env.COMPANY_LANDLINE || '',
-      company_mobile: process.env.COMPANY_MOBILE || ''
+      company_mobile: process.env.COMPANY_MOBILE || '+91 99530 43676',
     };
 
     console.log('📤 AstrologyAPI PDF Request:', JSON.stringify(pdfRequestBody, null, 2));
