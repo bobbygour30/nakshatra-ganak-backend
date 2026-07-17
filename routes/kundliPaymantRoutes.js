@@ -16,29 +16,24 @@ const TEST_MODE = true;
 
 router.post('/create-order', async (req, res) => {
   try {
-    // ✅ Testing mode: ₹1 (100 paise)
     // Production mode: ₹99 (9900 paise)
-    const TESTING_AMOUNT = 1; // ₹1 for testing
-    const PRODUCTION_AMOUNT = 99; // ₹99 for production
-
-    // Use 1 rupee for testing
-    const amount = TESTING_AMOUNT;
+    const amount = 99;
     const { currency = 'INR' } = req.body;
 
     const options = {
-      amount: amount * 100, // Amount in paise (1 * 100 = 100 paise = ₹1)
+      amount: amount * 100,
       currency: currency,
       receipt: `receipt_${Date.now()}`,
       payment_capture: 1,
       notes: {
         purpose: 'Kundli Generation',
-        is_test: 'true'
+        is_test: 'false'
       }
     };
 
     const order = await razorpay.orders.create(options);
 
-    console.log(`✅ Order created: ₹${amount} for testing`);
+    console.log(`✅ Order created: ₹${amount}`);
 
     res.json({
       success: true,
@@ -68,7 +63,6 @@ router.post('/verify-payment', async (req, res) => {
       razorpay_signature
     } = req.body;
 
-    // Validate required fields
     if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
       return res.status(400).json({
         success: false,
@@ -147,13 +141,12 @@ router.get('/payment-status/:paymentId', async (req, res) => {
   }
 });
 
-// ✅ Optional: Switch between test and production mode
 // @route   POST /api/kundlipayments/set-mode
 // @desc    Set payment mode (test/production)
 // @access  Public (No auth required)
 router.post('/set-mode', async (req, res) => {
   try {
-    const { mode } = req.body; // 'test' or 'production'
+    const { mode } = req.body;
     
     if (!mode || !['test', 'production'].includes(mode)) {
       return res.status(400).json({
@@ -162,8 +155,6 @@ router.post('/set-mode', async (req, res) => {
       });
     }
 
-    // Store mode in a global variable or database
-    // For now, just return success
     const amount = mode === 'test' ? 1 : 99;
     
     res.json({
@@ -190,9 +181,9 @@ router.get('/config', async (req, res) => {
       success: true,
       config: {
         key_id: process.env.RAZORPAY_KEY_ID,
-        amount: TEST_MODE ? 1 : 99,
+        amount: 99,
         currency: 'INR',
-        test_mode: TEST_MODE
+        test_mode: false
       }
     });
   } catch (error) {
