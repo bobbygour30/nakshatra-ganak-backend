@@ -30,7 +30,8 @@ router.post('/generate', async (req, res) => {
   try {
     const { 
       date, month, year, hour, minute, latitude, longitude, timezone = 5.5,
-      fullName, email, mobile, city, gender = 'male'
+      fullName, email, mobile, city, gender = 'male',
+      language = 'en' // Added language with default 'en'
     } = req.body;
 
     // Validate required fields
@@ -61,7 +62,7 @@ router.post('/generate', async (req, res) => {
       min: parseInt(minute),
       lat: parseFloat(latitude),
       lon: parseFloat(longitude),
-      language: 'en',
+      language: language, // Pass language to AstrologyAPI
       tzone: parseFloat(timezone),
       place: city || 'Unknown',
       chart_style: 'NORTH_INDIAN',
