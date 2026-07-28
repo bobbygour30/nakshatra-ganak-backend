@@ -9,8 +9,8 @@ const cloudinary = require('cloudinary').v2;
 // ============================================================
 const WATI_API_URL = process.env.WATI_API_URL || 'https://live-mt-server.wati.io/10207630';
 const WATI_ACCESS_TOKEN = process.env.WATI_ACCESS_TOKEN;
-const TEMPLATE_NAME = process.env.WHATSAPP_TEMPLATE_NAME || 'kundli_pdf_delivery';
-const BROADCAST_NAME = process.env.WHATSAPP_BROADCAST_NAME || 'kundli_pdf_delivery_broadcast';
+const TEMPLATE_NAME = process.env.WHATSAPP_TEMPLATE_NAME || 'kundly_pdf_delivery';
+const BROADCAST_NAME = process.env.WHATSAPP_BROADCAST_NAME || 'kundly_pdf_delivery_broadcast';
 
 // ============================================================
 //  SEND WHATSAPP INSTANTLY (Core Function)

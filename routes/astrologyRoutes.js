@@ -121,7 +121,7 @@ router.post('/generate-and-send', async (req, res) => {
       console.warn('⚠️ Cloudinary upload failed, using original URL');
     }
 
-    // 3. SCHEDULE WHATSAPP (NOT INSTANT)
+    // 3. SCHEDULE WHATSAPP (10 MINUTES DELAY)
     const filename = `Kundli_${fullName.replace(/\s/g, '_')}.pdf`;
     const scheduledTime = new Date(Date.now() + (whatsappDelay * 60 * 1000));
     
@@ -148,11 +148,11 @@ router.post('/generate-and-send', async (req, res) => {
 
     console.log(`⏰ WhatsApp scheduled for ${scheduledTime.toISOString()}`);
 
-    // 4. Return response
+    // 4. Return response with schedule info
     return res.json({
       success: true,
       pdfUrl: cloudinaryUrl,
-      message: 'PDF generated successfully. WhatsApp will be sent after 10 minutes.',
+      message: `PDF generated successfully. WhatsApp will be sent after ${whatsappDelay} minutes.`,
       whatsapp: {
         sent: false,
         scheduledFor: scheduledTime,
@@ -293,7 +293,7 @@ router.post('/generate', async (req, res) => {
 });
 
 // ============================================================
-//  VERIFY SCHEDULED STATUS (Frontend can check)
+//  CHECK SCHEDULED STATUS
 // ============================================================
 router.get('/scheduled-status/:recordId', async (req, res) => {
   try {

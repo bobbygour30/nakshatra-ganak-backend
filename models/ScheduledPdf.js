@@ -15,7 +15,7 @@ const scheduledPdfSchema = new mongoose.Schema({
   scheduledFor: { 
     type: Date, 
     required: true,
-    index: true // For faster queries
+    index: true
   },
   sentAt: { type: Date },
   status: {

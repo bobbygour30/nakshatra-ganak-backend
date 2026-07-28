@@ -1,9 +1,8 @@
 // api/cron.js - For Vercel Serverless Functions
-const app = require('../server'); // Your main app
 const { processScheduledWhatsApp } = require('../routes/whatsapp');
 
 export default async function handler(req, res) {
-  // Verify cron secret
+  // Verify cron secret for security
   const cronSecret = req.headers['x-cron-secret'];
   if (cronSecret !== process.env.CRON_SECRET) {
     return res.status(401).json({
@@ -32,5 +31,5 @@ export default async function handler(req, res) {
   }
 }
 
-// Make sure we export both for different import styles
+// Make sure we export for both import styles
 module.exports = handler;
