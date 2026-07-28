@@ -16,8 +16,8 @@ const TEST_MODE = true;
 
 router.post('/create-order', async (req, res) => {
   try {
-    // Production mode: ₹1 (100 paise)
-    const amount = 1;
+    // Production mode: ₹99 (9900 paise)
+    const amount = 99;
     const { currency = 'INR' } = req.body;
 
     const options = {
@@ -155,7 +155,7 @@ router.post('/set-mode', async (req, res) => {
       });
     }
 
-    const amount = mode === 'test' ? 1 : 1;
+    const amount = mode === 'test' ? 1 : 99;
     
     res.json({
       success: true,
@@ -181,7 +181,7 @@ router.get('/config', async (req, res) => {
       success: true,
       config: {
         key_id: process.env.RAZORPAY_KEY_ID,
-        amount: 1,
+        amount: 99,
         currency: 'INR',
         test_mode: false
       }
