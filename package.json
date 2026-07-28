@@ -3,9 +3,10 @@
   "version": "1.0.0",
   "description": "Authentication system for AstroPlanets",
   "main": "server.js",
-  "scripts": {
+    "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "vercel-build": "npm install"
   },
   "dependencies": {
     "@react-pdf/renderer": "^4.5.1",
