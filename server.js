@@ -58,15 +58,14 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 /* ================================
-   🔥 DB CONNECTION MIDDLEWARE (FIX)
+   DB CONNECTION MIDDLEWARE
 ================================ */
 let isAdminInitialized = false;
 
 app.use(async (req, res, next) => {
   try {
-    await connectDB(); // ensure DB is connected
+    await connectDB();
 
-    // Run admin init only once
     if (!isAdminInitialized) {
       await initializeDefaultAdmin();
       isAdminInitialized = true;
@@ -89,10 +88,10 @@ app.use(async (req, res, next) => {
 app.get("/api/health", (req, res) => {
   res.json({
     status: "OK",
-    message: "API is running",
+    message: "API is running (Instant WhatsApp Mode - No Cron)",
     timestamp: new Date().toISOString(),
-    mongodb:
-      mongoose.connection.readyState === 1 ? "Connected" : "Disconnected",
+    mongodb: mongoose.connection.readyState === 1 ? "Connected" : "Disconnected",
+    whatsapp: "INSTANT_SEND"
   });
 });
 
@@ -111,21 +110,22 @@ app.get("/api/test-cors", (req, res) => {
 ================================ */
 app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/api/admin", require("./routes/adminRoutes"));
-// Add this after other routes
 app.use('/api/products', require('./routes/productRoutes'));
-// Add this with other routes
 app.use('/api/upload', require('./routes/uploadRoutes'));
-// Add these with other routes
 app.use('/api/cart', require('./routes/cartRoutes'));
 app.use('/api/payment', require('./routes/paymentRoutes'));
 app.use('/api/bookings', require('./routes/bookingRoutes'));
 app.use('/api/orders', require('./routes/orderRoutes'));
 app.use('/api/astrology', require('./routes/astrologyRoutes'));
-app.use('/api/kundlipayments',require('./routes/kundliPaymantRoutes'));
+app.use('/api/kundlipayments', require('./routes/kundliPaymantRoutes'));
 app.use('/api/blogs', require('./routes/blogRoutes'));
 app.use('/api/services', require('./routes/serviceRoutes'));
-app.use('/api/service-payment',require('./routes/servicePaymentRoutes'));
+app.use('/api/service-payment', require('./routes/servicePaymentRoutes'));
 app.use('/api/contact', require('./routes/contactRoutes'));
+
+// WhatsApp routes - instant send only (no cron)
+const whatsappRoutes = require('./routes/whatsapp');
+app.use('/api/whatsapp', whatsappRoutes.router);
 
 /* ================================
    ROOT
@@ -134,8 +134,8 @@ app.get("/", (req, res) => {
   res.json({
     message: "AstroPlanets Auth API is running",
     version: "1.0.0",
-    mongodb:
-      mongoose.connection.readyState === 1 ? "Connected" : "Disconnected",
+    mode: "INSTANT_WHATSAPP_SEND",
+    mongodb: mongoose.connection.readyState === 1 ? "Connected" : "Disconnected",
   });
 });
 
@@ -177,5 +177,6 @@ if (require.main === module) {
   app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`📍 http://localhost:${PORT}`);
+    console.log(`📱 WhatsApp Mode: INSTANT SEND (No Cron Jobs)`);
   });
 }
