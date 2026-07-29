@@ -12,7 +12,7 @@ const razorpay = new Razorpay({
 // @route   POST /api/kundlipayments/create-order
 // @desc    Create Razorpay order
 // @access  Public (No auth required)
-const TEST_MODE = true;
+const TEST_MODE = false; // Set to true for testing, false for production
 
 router.post('/create-order', async (req, res) => {
   try {
