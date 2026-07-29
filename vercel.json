@@ -10,19 +10,6 @@
     {
       "src": "/api/(.*)",
       "dest": "/server.js"
-    },
-    {
-      "src": "/api/cron",
-      "dest": "/api/cron.js"
     }
-  ],
-  "crons": [
-    {
-      "path": "/api/cron",
-      "schedule": "*/1 * * * *"
-    }
-  ],
-  "env": {
-    "CRON_SECRET": "your-secret-key-here"
-  }
+  ]
 }
