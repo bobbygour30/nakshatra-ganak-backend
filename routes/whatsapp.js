@@ -64,132 +64,7 @@ async function sendWhatsApp(phoneNumber, pdfUrl, pdfName, customerName) {
 }
 
 // ============================================================
-//  PROCESS SCHEDULED WHATSAPP (Called by Vercel Cron)
-// ============================================================
-async function processScheduledWhatsApp() {
-  console.log('🔄 Processing scheduled WhatsApp messages...');
-  
-  try {
-    const now = new Date();
-    
-    // Find pending records that are due
-    const pendingRecords = await ScheduledPdf.find({
-      status: 'pending',
-      scheduledFor: { $lte: now },
-      attempts: { $lt: 3 } // Max 3 retries
-    });
-
-    console.log(`📊 Found ${pendingRecords.length} pending messages to process`);
-
-    let successCount = 0;
-    let failCount = 0;
-
-    for (const record of pendingRecords) {
-      try {
-        const { mobile, fullName } = record.userDetails;
-        const { cloudinaryUrl, filename } = record.pdf;
-
-        console.log(`📤 Sending to ${fullName} (${mobile})`);
-
-        // Send WhatsApp
-        await sendWhatsApp(mobile, cloudinaryUrl, filename, fullName);
-
-        // Update record - SUCCESS
-        record.status = 'sent';
-        record.sentAt = new Date();
-        record.whatsappSent = true;
-        record.attempts += 1;
-        await record.save();
-
-        successCount++;
-        console.log(`✅ Sent to ${fullName}`);
-
-      } catch (error) {
-        console.error(`❌ Failed for ${record._id}:`, error.message);
-        
-        // Update record - FAILURE
-        record.attempts += 1;
-        record.error = error.message;
-        
-        if (record.attempts >= 3) {
-          record.status = 'failed';
-          console.log(`💀 Marked as failed after ${record.attempts} attempts`);
-        }
-        await record.save();
-        failCount++;
-      }
-    }
-
-    console.log(`📊 Summary: ${successCount} sent, ${failCount} failed`);
-    return { successCount, failCount };
-
-  } catch (error) {
-    console.error('❌ Scheduler error:', error);
-    throw error;
-  }
-}
-
-// ============================================================
-//  VERCELL CRON JOB ENDPOINT
-// ============================================================
-router.post('/cron/process-scheduled', async (req, res) => {
-  try {
-    // Verify cron secret for security
-    const cronSecret = req.headers['x-cron-secret'];
-    if (cronSecret !== process.env.CRON_SECRET) {
-      return res.status(401).json({
-        success: false,
-        message: 'Unauthorized'
-      });
-    }
-
-    console.log('⏰ Cron job triggered at:', new Date().toISOString());
-    const result = await processScheduledWhatsApp();
-    
-    return res.json({
-      success: true,
-      message: 'Scheduled messages processed',
-      ...result,
-      timestamp: new Date().toISOString()
-    });
-
-  } catch (error) {
-    console.error('Cron job error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to process scheduled messages',
-      error: error.message
-    });
-  }
-});
-
-// ============================================================
-//  MANUAL TRIGGER (For testing)
-// ============================================================
-router.post('/process-now', async (req, res) => {
-  try {
-    console.log('🔄 Manual trigger at:', new Date().toISOString());
-    const result = await processScheduledWhatsApp();
-    
-    return res.json({
-      success: true,
-      message: 'Manual processing completed',
-      ...result,
-      timestamp: new Date().toISOString()
-    });
-
-  } catch (error) {
-    console.error('Manual trigger error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to process scheduled messages',
-      error: error.message
-    });
-  }
-});
-
-// ============================================================
-//  SEND WHATSAPP IMMEDIATELY (Manual Send)
+//  SEND WHATSAPP IMMEDIATELY (Main Route)
 // ============================================================
 router.post('/send-now', async (req, res) => {
   try {
@@ -276,8 +151,7 @@ router.post('/send-now', async (req, res) => {
         status: 'failed',
         whatsappSent: false,
         whatsappError: error.message,
-        attempts: 1,
-        error: error.message
+        attempts: 1
       });
       await record.save();
     } catch (logError) {
@@ -309,13 +183,10 @@ router.get('/status/:recordId', async (req, res) => {
     return res.json({
       success: true,
       status: record.status,
-      scheduledFor: record.scheduledFor,
       sentAt: record.sentAt,
       attempts: record.attempts,
-      error: record.error,
-      whatsappSent: record.whatsappSent,
-      whatsappError: record.whatsappError,
-      delayMinutes: record.delayMinutes
+      error: record.error || record.whatsappError,
+      whatsappSent: record.whatsappSent
     });
 
   } catch (error) {
@@ -333,14 +204,14 @@ router.get('/status/:recordId', async (req, res) => {
 router.get('/test', (req, res) => {
   res.json({
     success: true,
-    message: 'WhatsApp API is working (Scheduled Mode)',
+    message: 'WhatsApp API is working (Instant Send Mode)',
     config: {
       watiApiUrl: WATI_API_URL,
       hasToken: !!WATI_ACCESS_TOKEN,
       templateName: TEMPLATE_NAME,
-      mode: 'SCHEDULED (Vercel Cron)'
+      mode: 'INSTANT_SEND'
     }
   });
 });
 
-module.exports = { router, sendWhatsApp, processScheduledWhatsApp };
+module.exports = { router, sendWhatsApp };

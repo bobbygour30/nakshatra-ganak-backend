@@ -12,29 +12,17 @@ const scheduledPdfSchema = new mongoose.Schema({
     cloudinaryUrl: { type: String, required: true },
     filename: { type: String, required: true }
   },
-  scheduledFor: { 
-    type: Date, 
-    required: true,
-    index: true
-  },
-  sentAt: { type: Date },
+  sentAt: { type: Date, default: Date.now },
   status: {
     type: String,
-    enum: ['pending', 'sent', 'failed'],
-    default: 'pending',
-    index: true
+    enum: ['sent', 'failed'],
+    default: 'sent'
   },
-  attempts: { type: Number, default: 0 },
-  maxAttempts: { type: Number, default: 3 },
-  error: { type: String, default: '' },
   whatsappSent: { type: Boolean, default: false },
   whatsappError: { type: String, default: '' },
-  delayMinutes: { type: Number, default: 10 }
+  attempts: { type: Number, default: 1 }
 }, { 
   timestamps: true 
 });
-
-// Index for efficient cron job queries
-scheduledPdfSchema.index({ status: 1, scheduledFor: 1, attempts: 1 });
 
 module.exports = mongoose.model('ScheduledPdf', scheduledPdfSchema);

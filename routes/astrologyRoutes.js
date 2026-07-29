@@ -14,7 +14,7 @@ const ASTROLOGYAPI_KEY = process.env.ASTROLOGYAPI_KEY;
 console.log('=================================');
 console.log('🔥 AstrologyAPI.com PDF Configuration');
 console.log('API Key:', ASTROLOGYAPI_KEY ? '✅ Set' : '❌ Missing');
-console.log('Mode    : SCHEDULED WHATSAPP (Vercel Cron)');
+console.log('Mode    : INSTANT WHATSAPP SEND');
 console.log('=================================');
 
 const getAstrologyApiHeaders = () => {
@@ -27,15 +27,14 @@ const getAstrologyApiHeaders = () => {
 };
 
 // ============================================================
-//  GENERATE PDF AND SCHEDULE WHATSAPP
+//  GENERATE PDF AND SEND WHATSAPP INSTANTLY
 // ============================================================
 router.post('/generate-and-send', async (req, res) => {
   try {
     const { 
       date, month, year, hour, minute, latitude, longitude, timezone = 5.5,
       fullName, email, mobile, city, gender = 'male',
-      language = 'en',
-      whatsappDelay = 10 // Default 10 minutes
+      language = 'en'
     } = req.body;
 
     // Validate
@@ -121,43 +120,86 @@ router.post('/generate-and-send', async (req, res) => {
       console.warn('⚠️ Cloudinary upload failed, using original URL');
     }
 
-    // 3. SCHEDULE WHATSAPP (10 MINUTES DELAY)
+    // 3. SEND WHATSAPP INSTANTLY (NO DELAY, NO CRON)
+    let whatsappResult = { sent: false, error: null, recordId: null };
     const filename = `Kundli_${fullName.replace(/\s/g, '_')}.pdf`;
-    const scheduledTime = new Date(Date.now() + (whatsappDelay * 60 * 1000));
     
-    const record = new ScheduledPdf({
-      userDetails: {
-        fullName,
-        email: email || '',
-        mobile: mobile,
-        city: city || ''
-      },
-      pdf: {
-        url: pdfUrl,
-        cloudinaryUrl: cloudinaryUrl,
-        filename: filename
-      },
-      status: 'pending',
-      scheduledFor: scheduledTime,
-      whatsappSent: false,
-      attempts: 0,
-      maxAttempts: 3,
-      delayMinutes: whatsappDelay
-    });
-    await record.save();
+    try {
+      console.log(`📤 Sending WhatsApp to ${mobile} instantly...`);
+      
+      const result = await sendWhatsApp(mobile, cloudinaryUrl, filename, fullName);
 
-    console.log(`⏰ WhatsApp scheduled for ${scheduledTime.toISOString()}`);
+      // Log success in database
+      const record = new ScheduledPdf({
+        userDetails: {
+          fullName,
+          email: email || '',
+          mobile: mobile,
+          city: city || ''
+        },
+        pdf: {
+          url: pdfUrl,
+          cloudinaryUrl: cloudinaryUrl,
+          filename: filename
+        },
+        status: 'sent',
+        sentAt: new Date(),
+        whatsappSent: true,
+        attempts: 1
+      });
+      await record.save();
 
-    // 4. Return response with schedule info
+      whatsappResult = {
+        sent: true,
+        error: null,
+        recordId: record._id
+      };
+      
+      console.log('✅ WhatsApp sent instantly!');
+
+    } catch (whatsappError) {
+      console.error('❌ WhatsApp send failed:', whatsappError.message);
+      
+      // Log failure in database
+      try {
+        const record = new ScheduledPdf({
+          userDetails: {
+            fullName,
+            email: email || '',
+            mobile: mobile,
+            city: city || ''
+          },
+          pdf: {
+            url: pdfUrl,
+            cloudinaryUrl: cloudinaryUrl,
+            filename: filename
+          },
+          status: 'failed',
+          whatsappSent: false,
+          whatsappError: whatsappError.message,
+          attempts: 1
+        });
+        await record.save();
+        
+        whatsappResult = {
+          sent: false,
+          error: whatsappError.message,
+          recordId: record._id
+        };
+      } catch (logError) {
+        console.error('Failed to log error:', logError);
+      }
+    }
+
+    // 4. Return response
     return res.json({
       success: true,
       pdfUrl: cloudinaryUrl,
-      message: `PDF generated successfully. WhatsApp will be sent after ${whatsappDelay} minutes.`,
+      message: 'PDF generated and WhatsApp sent!',
       whatsapp: {
-        sent: false,
-        scheduledFor: scheduledTime,
-        recordId: record._id,
-        delayMinutes: whatsappDelay
+        sent: whatsappResult.sent,
+        error: whatsappResult.error,
+        recordId: whatsappResult.recordId
       },
       userDetails: {
         fullName,
@@ -293,9 +335,9 @@ router.post('/generate', async (req, res) => {
 });
 
 // ============================================================
-//  CHECK SCHEDULED STATUS
+//  GET STATUS
 // ============================================================
-router.get('/scheduled-status/:recordId', async (req, res) => {
+router.get('/status/:recordId', async (req, res) => {
   try {
     const record = await ScheduledPdf.findById(req.params.recordId);
     
@@ -309,11 +351,9 @@ router.get('/scheduled-status/:recordId', async (req, res) => {
     return res.json({
       success: true,
       status: record.status,
-      scheduledFor: record.scheduledFor,
       sentAt: record.sentAt,
-      attempts: record.attempts,
       whatsappSent: record.whatsappSent,
-      error: record.error
+      error: record.error || record.whatsappError
     });
 
   } catch (error) {

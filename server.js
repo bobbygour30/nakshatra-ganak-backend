@@ -88,10 +88,10 @@ app.use(async (req, res, next) => {
 app.get("/api/health", (req, res) => {
   res.json({
     status: "OK",
-    message: "API is running (Scheduled WhatsApp Mode - Vercel Cron)",
+    message: "API is running (Instant WhatsApp Send - No Cron)",
     timestamp: new Date().toISOString(),
     mongodb: mongoose.connection.readyState === 1 ? "Connected" : "Disconnected",
-    whatsapp: "SCHEDULED (10 min delay)"
+    whatsapp: "INSTANT_SEND"
   });
 });
 
@@ -123,7 +123,7 @@ app.use('/api/services', require('./routes/serviceRoutes'));
 app.use('/api/service-payment', require('./routes/servicePaymentRoutes'));
 app.use('/api/contact', require('./routes/contactRoutes'));
 
-// WhatsApp routes - scheduled mode
+// WhatsApp routes - instant send only
 const whatsappRoutes = require('./routes/whatsapp');
 app.use('/api/whatsapp', whatsappRoutes.router);
 
@@ -134,7 +134,7 @@ app.get("/", (req, res) => {
   res.json({
     message: "AstroPlanets Auth API is running",
     version: "1.0.0",
-    mode: "SCHEDULED_WHATSAPP (Vercel Cron)",
+    mode: "INSTANT_WHATSAPP_SEND",
     mongodb: mongoose.connection.readyState === 1 ? "Connected" : "Disconnected",
   });
 });
@@ -177,6 +177,6 @@ if (require.main === module) {
   app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`📍 http://localhost:${PORT}`);
-    console.log(`📱 WhatsApp Mode: SCHEDULED (Vercel Cron)`);
+    console.log(`📱 WhatsApp Mode: INSTANT SEND (No Cron Jobs)`);
   });
 }
