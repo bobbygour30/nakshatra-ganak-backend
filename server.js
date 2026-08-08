@@ -122,6 +122,8 @@ app.use('/api/blogs', require('./routes/blogRoutes'));
 app.use('/api/services', require('./routes/serviceRoutes'));
 app.use('/api/service-payment', require('./routes/servicePaymentRoutes'));
 app.use('/api/contact', require('./routes/contactRoutes'));
+app.use('/api/astrology-match', require('./routes/astrologyMatch')); // <-- NEW ROUTE
+
 
 // WhatsApp routes - instant send only
 const whatsappRoutes = require('./routes/whatsapp');
