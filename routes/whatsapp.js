@@ -3,6 +3,7 @@ const router = express.Router();
 const ScheduledPdf = require('../models/ScheduledPdf');
 const axios = require('axios');
 const cloudinary = require('cloudinary').v2;
+const mongoose = require('mongoose');
 
 // ============================================================
 //  WATI WHATSAPP CONFIGURATION
@@ -64,10 +65,251 @@ async function sendWhatsApp(phoneNumber, pdfUrl, pdfName, customerName) {
 }
 
 // ============================================================
-//  SEND WHATSAPP IMMEDIATELY (Main Route)
+//  PROCESS SCHEDULED MESSAGES (Called by cron job)
+// ============================================================
+async function processScheduledMessages() {
+  try {
+    // Check if database is connected
+    if (mongoose.connection.readyState !== 1) {
+      console.log('⚠️ Database not connected, skipping processing');
+      return {
+        success: false,
+        message: 'Database not connected',
+        processed: 0,
+        sent: 0,
+        failed: 0,
+        error: 'Database connection not available'
+      };
+    }
+
+    console.log('⏰ Processing scheduled WhatsApp messages...');
+    
+    // Find all scheduled messages that are due and not sent
+    const dueRecords = await ScheduledPdf.find({
+      status: 'scheduled',
+      whatsappSent: false,
+      scheduledTime: { $lte: new Date() }
+    }).maxTimeMS(5000); // Add timeout to prevent long-running queries
+
+    if (dueRecords.length === 0) {
+      console.log('📭 No scheduled messages to process');
+      return {
+        success: true,
+        message: 'No scheduled messages to process',
+        processed: 0,
+        sent: 0,
+        failed: 0
+      };
+    }
+
+    console.log(`📬 Found ${dueRecords.length} scheduled messages to process`);
+
+    let sent = 0;
+    let failed = 0;
+
+    for (const record of dueRecords) {
+      try {
+        // Check if max attempts reached
+        if (record.attempts >= record.maxAttempts) {
+          console.log(`⚠️ Max attempts reached for ${record.userDetails.mobile}, marking as failed`);
+          record.status = 'failed';
+          record.whatsappError = 'Max attempts reached';
+          await record.save();
+          failed++;
+          continue;
+        }
+
+        // Update attempts
+        record.attempts += 1;
+        record.lastAttemptAt = new Date();
+
+        console.log(`📤 Sending to ${record.userDetails.mobile} (Attempt ${record.attempts}/${record.maxAttempts})`);
+
+        // Send WhatsApp
+        await sendWhatsApp(
+          record.userDetails.mobile,
+          record.pdf.cloudinaryUrl || record.pdf.url,
+          record.pdf.filename,
+          record.userDetails.fullName
+        );
+
+        // Update record as sent
+        record.status = 'sent';
+        record.whatsappSent = true;
+        record.sentAt = new Date();
+        await record.save();
+        sent++;
+
+        console.log(`✅ Sent to ${record.userDetails.mobile}`);
+
+      } catch (error) {
+        console.error(`❌ Failed to send to ${record.userDetails.mobile}:`, error.message);
+        
+        // If max attempts reached, mark as failed
+        if (record.attempts >= record.maxAttempts) {
+          record.status = 'failed';
+          record.whatsappError = error.message;
+          await record.save();
+          failed++;
+        } else {
+          // Keep as scheduled for retry
+          await record.save();
+        }
+      }
+    }
+
+    return {
+      success: true,
+      message: `Processed ${dueRecords.length} messages`,
+      sent: sent,
+      failed: failed,
+      remaining: dueRecords.length - sent - failed
+    };
+
+  } catch (error) {
+    console.error('❌ Error processing scheduled messages:', error);
+    
+    // Check if it's a Mongoose timeout error
+    if (error.name === 'MongooseError' && error.message.includes('buffering timed out')) {
+      return {
+        success: false,
+        message: 'Database operation timed out',
+        error: 'MongoDB connection timeout',
+        processed: 0,
+        sent: 0,
+        failed: 0
+      };
+    }
+    
+    return {
+      success: false,
+      message: 'Failed to process scheduled messages',
+      error: error.message,
+      processed: 0,
+      sent: 0,
+      failed: 0
+    };
+  }
+}
+
+// ============================================================
+//  SEND WHATSAPP WITH 10 MIN DELAY (Main Route)
+// ============================================================
+router.post('/send-with-delay', async (req, res) => {
+  try {
+    // Check database connection
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        success: false,
+        message: 'Database not connected. Please try again later.'
+      });
+    }
+
+    const { phoneNumber, pdfUrl, pdfName, customerName, email, city, delayMinutes = 10 } = req.body;
+
+    if (!phoneNumber || !pdfUrl) {
+      return res.status(400).json({
+        success: false,
+        message: 'Phone number and PDF URL are required'
+      });
+    }
+
+    // Upload to Cloudinary if not already
+    let cloudinaryUrl = pdfUrl;
+    if (!pdfUrl.includes('cloudinary')) {
+      try {
+        const result = await cloudinary.uploader.upload(pdfUrl, {
+          resource_type: 'raw',
+          folder: 'kundli_reports',
+          public_id: `kundli_${Date.now()}`,
+          use_filename: true,
+          unique_filename: true
+        });
+        cloudinaryUrl = result.secure_url;
+        console.log('✅ Uploaded to Cloudinary:', cloudinaryUrl);
+      } catch (uploadError) {
+        console.warn('⚠️ Cloudinary upload failed, using original URL');
+      }
+    }
+
+    // Calculate scheduled time
+    const scheduledTime = new Date(Date.now() + delayMinutes * 60 * 1000);
+    
+    // Create scheduled record
+    const record = new ScheduledPdf({
+      userDetails: {
+        fullName: customerName || 'User',
+        email: email || '',
+        mobile: phoneNumber,
+        city: city || ''
+      },
+      pdf: {
+        url: pdfUrl,
+        cloudinaryUrl: cloudinaryUrl,
+        filename: pdfName || 'Kundli_Report.pdf'
+      },
+      status: 'scheduled',
+      scheduledTime: scheduledTime,
+      whatsappSent: false,
+      attempts: 0
+    });
+    await record.save();
+
+    console.log(`📅 WhatsApp scheduled for ${scheduledTime.toISOString()} (in ${delayMinutes} minutes)`);
+
+    return res.json({
+      success: true,
+      message: `WhatsApp scheduled to send in ${delayMinutes} minutes`,
+      recordId: record._id,
+      scheduledTime: scheduledTime,
+      status: 'scheduled'
+    });
+
+  } catch (error) {
+    console.error('Schedule error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to schedule WhatsApp',
+      error: error.message
+    });
+  }
+});
+
+// ============================================================
+//  PROCESS SCHEDULED WHATSAPP (API Endpoint)
+// ============================================================
+router.post('/process-scheduled', async (req, res) => {
+  try {
+    const result = await processScheduledMessages();
+    
+    if (result.success) {
+      return res.json(result);
+    } else {
+      return res.status(500).json(result);
+    }
+  } catch (error) {
+    console.error('❌ Error in process-scheduled route:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to process scheduled messages',
+      error: error.message
+    });
+  }
+});
+
+// ============================================================
+//  SEND WHATSAPP IMMEDIATELY (Emergency/Manual Route)
 // ============================================================
 router.post('/send-now', async (req, res) => {
   try {
+    // Check database connection
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        success: false,
+        message: 'Database not connected. Please try again later.'
+      });
+    }
+
     const { phoneNumber, pdfUrl, pdfName, customerName, email, city } = req.body;
 
     if (!phoneNumber || !pdfUrl) {
@@ -119,7 +361,8 @@ router.post('/send-now', async (req, res) => {
       status: 'sent',
       sentAt: new Date(),
       whatsappSent: true,
-      attempts: 1
+      attempts: 1,
+      scheduledTime: new Date()
     });
     await record.save();
 
@@ -151,7 +394,8 @@ router.post('/send-now', async (req, res) => {
         status: 'failed',
         whatsappSent: false,
         whatsappError: error.message,
-        attempts: 1
+        attempts: 1,
+        scheduledTime: new Date()
       });
       await record.save();
     } catch (logError) {
@@ -171,6 +415,14 @@ router.post('/send-now', async (req, res) => {
 // ============================================================
 router.get('/status/:recordId', async (req, res) => {
   try {
+    // Check database connection
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        success: false,
+        message: 'Database not connected. Please try again later.'
+      });
+    }
+
     const record = await ScheduledPdf.findById(req.params.recordId);
     
     if (!record) {
@@ -180,20 +432,117 @@ router.get('/status/:recordId', async (req, res) => {
       });
     }
 
+    const timeRemaining = record.scheduledTime ? 
+      Math.max(0, Math.floor((new Date(record.scheduledTime) - new Date()) / 1000)) : 0;
+
     return res.json({
       success: true,
       status: record.status,
+      scheduledTime: record.scheduledTime,
       sentAt: record.sentAt,
       attempts: record.attempts,
+      maxAttempts: record.maxAttempts,
       error: record.error || record.whatsappError,
-      whatsappSent: record.whatsappSent
+      whatsappSent: record.whatsappSent,
+      timeRemaining: timeRemaining, // in seconds
+      timeRemainingFormatted: timeRemaining > 0 ? 
+        `${Math.floor(timeRemaining / 60)}m ${timeRemaining % 60}s` : 'Ready to send'
     });
 
   } catch (error) {
     console.error('Status error:', error);
     return res.status(500).json({
       success: false,
-      message: 'Failed to get status'
+      message: 'Failed to get status',
+      error: error.message
+    });
+  }
+});
+
+// ============================================================
+//  CANCEL SCHEDULED SEND
+// ============================================================
+router.delete('/cancel/:recordId', async (req, res) => {
+  try {
+    // Check database connection
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        success: false,
+        message: 'Database not connected. Please try again later.'
+      });
+    }
+
+    const record = await ScheduledPdf.findById(req.params.recordId);
+    
+    if (!record) {
+      return res.status(404).json({
+        success: false,
+        message: 'Record not found'
+      });
+    }
+
+    if (record.status === 'sent') {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot cancel: Already sent'
+      });
+    }
+
+    if (record.status === 'failed') {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot cancel: Already failed'
+      });
+    }
+
+    record.status = 'failed';
+    record.whatsappError = 'Cancelled by user';
+    await record.save();
+
+    return res.json({
+      success: true,
+      message: 'Scheduled send cancelled successfully'
+    });
+
+  } catch (error) {
+    console.error('Cancel error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to cancel',
+      error: error.message
+    });
+  }
+});
+
+// ============================================================
+//  GET ALL SCHEDULED MESSAGES (Admin)
+// ============================================================
+router.get('/all', async (req, res) => {
+  try {
+    // Check database connection
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        success: false,
+        message: 'Database not connected. Please try again later.'
+      });
+    }
+
+    const records = await ScheduledPdf.find()
+      .sort({ createdAt: -1 })
+      .limit(100); // Limit to 100 records for performance
+
+    return res.json({
+      success: true,
+      count: records.length,
+      records: records
+    });
+
+  } catch (error) {
+    console.error('Get all error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to get records',
+      error: error.message
     });
   }
 });
@@ -204,14 +553,16 @@ router.get('/status/:recordId', async (req, res) => {
 router.get('/test', (req, res) => {
   res.json({
     success: true,
-    message: 'WhatsApp API is working (Instant Send Mode)',
+    message: 'WhatsApp API is working (Scheduled Send Mode - 10 min delay)',
     config: {
       watiApiUrl: WATI_API_URL,
       hasToken: !!WATI_ACCESS_TOKEN,
       templateName: TEMPLATE_NAME,
-      mode: 'INSTANT_SEND'
+      mode: 'SCHEDULED_SEND',
+      delayMinutes: 10,
+      dbStatus: mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected'
     }
   });
 });
 
-module.exports = { router, sendWhatsApp };
+module.exports = { router, sendWhatsApp, processScheduledMessages };

@@ -317,22 +317,20 @@ const getCurrentAdmin = async (req, res) => {
   }
 };
 
-// @desc    Initialize default admin (run on server start)
-// @access  Internal
 const initializeDefaultAdmin = async () => {
   try {
-    const defaultAdminEmail = 'admin@astroplanet.com';
-    const defaultPassword = 'ashtro#admin@123';
+    const defaultAdminEmail = 'admin@nakshatraganak.com';
+    const defaultPassword = 'nakshatra#admin@123';
     
-    // Check if admin exists
     let existingAdmin = await Admin.findOne({ email: defaultAdminEmail });
     
     if (!existingAdmin) {
       console.log('Creating default admin...');
-      
-      // Create admin with proper password hashing
       const salt = await bcrypt.genSalt(10);
       const hashedPassword = await bcrypt.hash(defaultPassword, salt);
+      
+      console.log('Plain password:', defaultPassword);
+      console.log('Hashed password (new):', hashedPassword);
       
       const defaultAdmin = new Admin({
         fullName: 'Super Admin',
@@ -344,20 +342,32 @@ const initializeDefaultAdmin = async () => {
       
       await defaultAdmin.save();
       console.log('✅ Default admin created successfully!');
-      console.log('Email:', defaultAdminEmail);
-      console.log('Password:', defaultPassword);
     } else {
       console.log('✅ Default admin already exists');
+      console.log('Current stored password hash:', existingAdmin.password);
       
-      // Optional: Update password if needed (for testing)
-      // Uncomment this to reset password if you're having issues
-      /*
+      // Test if current password works
+      const testCompare = await bcrypt.compare(defaultPassword, existingAdmin.password);
+      console.log('Current password comparison result:', testCompare);
+      
+      // Reset using updateOne
       const salt = await bcrypt.genSalt(10);
       const hashedPassword = await bcrypt.hash(defaultPassword, salt);
-      existingAdmin.password = hashedPassword;
-      await existingAdmin.save();
+      console.log('New hash for reset:', hashedPassword);
+      
+      await Admin.updateOne(
+        { email: defaultAdminEmail },
+        { $set: { password: hashedPassword } }
+      );
+      
+      // Verify the update worked
+      const updatedAdmin = await Admin.findOne({ email: defaultAdminEmail });
+      console.log('Updated stored password hash:', updatedAdmin.password);
+      
+      const verifyCompare = await bcrypt.compare(defaultPassword, updatedAdmin.password);
+      console.log('Updated password comparison result:', verifyCompare);
+      
       console.log('Admin password reset successfully');
-      */
     }
   } catch (error) {
     console.error('❌ Error creating default admin:', error);

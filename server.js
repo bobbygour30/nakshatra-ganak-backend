@@ -5,6 +5,7 @@ const mongoose = require("mongoose");
 const connectDB = require("./config/db");
 const { initializeDefaultAdmin } = require("./controllers/adminController");
 const dns = require("dns");
+const cron = require("node-cron");
 
 dotenv.config();
 
@@ -88,10 +89,11 @@ app.use(async (req, res, next) => {
 app.get("/api/health", (req, res) => {
   res.json({
     status: "OK",
-    message: "API is running (Instant WhatsApp Send - No Cron)",
+    message: "API is running (Scheduled WhatsApp Send - 10 min delay)",
     timestamp: new Date().toISOString(),
     mongodb: mongoose.connection.readyState === 1 ? "Connected" : "Disconnected",
-    whatsapp: "INSTANT_SEND"
+    whatsapp: "SCHEDULED_SEND (10 min delay)",
+    cronStatus: "Running (every minute)"
   });
 });
 
@@ -122,10 +124,9 @@ app.use('/api/blogs', require('./routes/blogRoutes'));
 app.use('/api/services', require('./routes/serviceRoutes'));
 app.use('/api/service-payment', require('./routes/servicePaymentRoutes'));
 app.use('/api/contact', require('./routes/contactRoutes'));
-app.use('/api/astrology-match', require('./routes/astrologyMatch')); // <-- NEW ROUTE
+app.use('/api/astrology-match', require('./routes/astrologyMatch'));
 
-
-// WhatsApp routes - instant send only
+// WhatsApp routes - scheduled send (10 min delay)
 const whatsappRoutes = require('./routes/whatsapp');
 app.use('/api/whatsapp', whatsappRoutes.router);
 
@@ -136,8 +137,13 @@ app.get("/", (req, res) => {
   res.json({
     message: "AstroPlanets Auth API is running",
     version: "1.0.0",
-    mode: "INSTANT_WHATSAPP_SEND",
+    mode: "SCHEDULED_WHATSAPP_SEND (10 min delay)",
     mongodb: mongoose.connection.readyState === 1 ? "Connected" : "Disconnected",
+    features: {
+      pdfGeneration: "Active",
+      whatsappSchedule: "10 minutes delay",
+      cronJob: "Running every minute"
+    }
   });
 });
 
@@ -166,19 +172,160 @@ app.use((err, req, res, next) => {
 });
 
 /* ================================
+   CRON JOB - Process scheduled WhatsApp messages
+================================ */
+let cronJobInitialized = false;
+let isDbConnected = false;
+
+// Check database connection status
+const checkDbConnection = () => {
+  return mongoose.connection.readyState === 1;
+};
+
+// Function to process scheduled messages with retry
+async function processWithRetry(maxRetries = 3) {
+  let retries = 0;
+  
+  while (retries < maxRetries) {
+    try {
+      // Check if database is connected
+      if (!checkDbConnection()) {
+        console.log(`⏳ Database not connected, attempt ${retries + 1}/${maxRetries}`);
+        await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
+        retries++;
+        continue;
+      }
+
+      // Import the process function
+      const { processScheduledMessages } = require('./routes/whatsapp');
+      
+      // Process scheduled messages
+      const result = await processScheduledMessages();
+      
+      if (result && result.success) {
+        const { sent, failed, remaining } = result;
+        if (sent > 0 || failed > 0) {
+          console.log(`✅ Cron job: ${sent} sent, ${failed} failed, ${remaining || 0} remaining`);
+        } else {
+          console.log(`📭 Cron job: No scheduled messages to process`);
+        }
+        return result;
+      } else {
+        console.error('❌ Cron job failed:', result?.message || 'Unknown error');
+        return null;
+      }
+    } catch (error) {
+      console.error(`❌ Cron job error (attempt ${retries + 1}):`, error.message);
+      retries++;
+      
+      if (retries < maxRetries) {
+        console.log(`⏳ Retrying in 5 seconds...`);
+        await new Promise(resolve => setTimeout(resolve, 5000));
+      } else {
+        console.error('❌ All retry attempts failed');
+        return null;
+      }
+    }
+  }
+}
+
+function initializeCronJob() {
+  if (cronJobInitialized) return;
+  
+  // Run every minute to check for scheduled messages
+  cron.schedule('* * * * *', async () => {
+    console.log(`⏰ [${new Date().toISOString()}] Cron job: Processing scheduled WhatsApp messages...`);
+    
+    try {
+      await processWithRetry(3);
+    } catch (error) {
+      console.error('❌ Cron job error:', error.message);
+    }
+  });
+
+  cronJobInitialized = true;
+  console.log('✅ Cron job initialized - Running every minute');
+}
+
+/* ================================
+   START SERVER
+================================ */
+const PORT = process.env.PORT || 5000;
+
+// Start the server
+const server = app.listen(PORT, async () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`📍 http://localhost:${PORT}`);
+  console.log(`📱 WhatsApp Mode: SCHEDULED SEND (10 min delay)`);
+  
+  // Wait for database connection before starting cron job
+  let dbConnected = false;
+  let attempts = 0;
+  
+  while (!dbConnected && attempts < 10) {
+    try {
+      await connectDB();
+      if (mongoose.connection.readyState === 1) {
+        dbConnected = true;
+        console.log('✅ Database connected successfully');
+      }
+    } catch (error) {
+      console.log(`⏳ Waiting for database connection... (attempt ${attempts + 1}/10)`);
+      attempts++;
+      await new Promise(resolve => setTimeout(resolve, 3000));
+    }
+  }
+  
+  if (dbConnected) {
+    // Initialize admin
+    try {
+      await initializeDefaultAdmin();
+      isAdminInitialized = true;
+      console.log("✅ Admin initialized");
+    } catch (error) {
+      console.error("❌ Admin initialization failed:", error.message);
+    }
+    
+    // Initialize cron job
+    initializeCronJob();
+
+    // Run initial check for pending scheduled messages
+    setTimeout(async () => {
+      console.log('🔄 Running initial check for pending scheduled messages...');
+      await processWithRetry(3);
+    }, 5000);
+  } else {
+    console.error('❌ Failed to connect to database after multiple attempts');
+    console.error('⚠️ Cron job will not start without database connection');
+  }
+});
+
+// Handle graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM signal received: closing HTTP server');
+  server.close(() => {
+    console.log('HTTP server closed');
+    // Close database connection
+    mongoose.connection.close(() => {
+      console.log('MongoDB connection closed');
+      process.exit(0);
+    });
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT signal received: closing HTTP server');
+  server.close(() => {
+    console.log('HTTP server closed');
+    // Close database connection
+    mongoose.connection.close(() => {
+      console.log('MongoDB connection closed');
+      process.exit(0);
+    });
+  });
+});
+
+/* ================================
    EXPORT FOR VERCEL
 ================================ */
 module.exports = app;
-
-/* ================================
-   LOCAL SERVER
-================================ */
-if (require.main === module) {
-  const PORT = process.env.PORT || 5000;
-
-  app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
-    console.log(`📍 http://localhost:${PORT}`);
-    console.log(`📱 WhatsApp Mode: INSTANT SEND (No Cron Jobs)`);
-  });
-}
