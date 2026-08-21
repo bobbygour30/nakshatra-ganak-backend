@@ -135,7 +135,7 @@ app.use('/api/whatsapp', whatsappRoutes.router);
 ================================ */
 app.get("/", (req, res) => {
   res.json({
-    message: "AstroPlanets Auth API is running",
+    message: "Nakshatra Ganak Auth API is running",
     version: "1.0.0",
     mode: "SCHEDULED_WHATSAPP_SEND (10 min delay)",
     mongodb: mongoose.connection.readyState === 1 ? "Connected" : "Disconnected",
