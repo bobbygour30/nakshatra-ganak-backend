@@ -9,15 +9,14 @@ const razorpay = new Razorpay({
   key_secret: process.env.RAZORPAY_KEY_SECRET
 });
 
+const KUNDLI_AMOUNT_RUPEES = 499; // single source of truth for the price
+
 // @route   POST /api/kundlipayments/create-order
 // @desc    Create Razorpay order
 // @access  Public (No auth required)
-const TEST_MODE = false; // Set to true for testing, false for production
-
 router.post('/create-order', async (req, res) => {
   try {
-    // Production mode: ₹499 (49900 paise)
-    const amount = 499;
+    const amount = KUNDLI_AMOUNT_RUPEES;
     const { currency = 'INR' } = req.body;
 
     const options = {
@@ -44,16 +43,18 @@ router.post('/create-order', async (req, res) => {
     });
   } catch (err) {
     console.error('Order creation error:', err);
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       message: 'Failed to create order',
-      error: err.message 
+      error: err.message
     });
   }
 });
 
 // @route   POST /api/kundlipayments/verify-payment
-// @desc    Verify Razorpay payment
+// @desc    Verify Razorpay payment (signature only). This does NOT authorize
+//          PDF generation by itself — /api/astrology/generate-and-schedule
+//          independently re-verifies the payment before doing any work.
 // @access  Public (No auth required)
 router.post('/verify-payment', async (req, res) => {
   try {
@@ -95,10 +96,10 @@ router.post('/verify-payment', async (req, res) => {
     }
   } catch (err) {
     console.error('Verification error:', err);
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       message: 'Payment verification failed',
-      error: err.message 
+      error: err.message
     });
   }
 });
@@ -109,7 +110,7 @@ router.post('/verify-payment', async (req, res) => {
 router.get('/payment-status/:paymentId', async (req, res) => {
   try {
     const { paymentId } = req.params;
-    
+
     if (!paymentId) {
       return res.status(400).json({
         success: false,
@@ -118,7 +119,7 @@ router.get('/payment-status/:paymentId', async (req, res) => {
     }
 
     const payment = await razorpay.payments.fetch(paymentId);
-    
+
     res.json({
       success: true,
       payment: {
@@ -141,37 +142,6 @@ router.get('/payment-status/:paymentId', async (req, res) => {
   }
 });
 
-// @route   POST /api/kundlipayments/set-mode
-// @desc    Set payment mode (test/production)
-// @access  Public (No auth required)
-router.post('/set-mode', async (req, res) => {
-  try {
-    const { mode } = req.body;
-    
-    if (!mode || !['test', 'production'].includes(mode)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid mode. Use "test" or "production"'
-      });
-    }
-
-    const amount = mode === 'test' ? 1 : 499;
-    
-    res.json({
-      success: true,
-      message: `Mode set to ${mode}`,
-      mode: mode,
-      amount: amount,
-      amount_in_paise: amount * 100
-    });
-  } catch (err) {
-    res.status(500).json({ 
-      success: false, 
-      message: err.message 
-    });
-  }
-});
-
 // @route   GET /api/kundlipayments/config
 // @desc    Get payment configuration
 // @access  Public (No auth required)
@@ -181,7 +151,7 @@ router.get('/config', async (req, res) => {
       success: true,
       config: {
         key_id: process.env.RAZORPAY_KEY_ID,
-        amount: 499,
+        amount: KUNDLI_AMOUNT_RUPEES,
         currency: 'INR',
         test_mode: false
       }
@@ -195,3 +165,52 @@ router.get('/config', async (req, res) => {
 });
 
 module.exports = router;
+
+// Exported so astrologyRoutes.js can independently re-verify a payment
+// before generating a PDF / scheduling a WhatsApp send. Never trust a
+// client-side "payment succeeded" flag alone.
+module.exports.verifyRazorpayPayment = async function verifyRazorpayPayment({
+  razorpay_order_id,
+  razorpay_payment_id,
+  razorpay_signature
+}) {
+  if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+    return { ok: false, reason: 'Missing payment verification fields' };
+  }
+
+  const body = razorpay_order_id + '|' + razorpay_payment_id;
+  const expectedSignature = crypto
+    .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+    .update(body.toString())
+    .digest('hex');
+
+  if (expectedSignature !== razorpay_signature) {
+    return { ok: false, reason: 'Invalid signature' };
+  }
+
+  // Signature alone can be replayed if leaked from logs/network tab, so also
+  // confirm with Razorpay that the payment was actually captured and for the
+  // expected amount.
+  let payment;
+  try {
+    payment = await razorpay.payments.fetch(razorpay_payment_id);
+  } catch (err) {
+    return { ok: false, reason: `Could not fetch payment: ${err.message}` };
+  }
+
+  if (!payment || payment.order_id !== razorpay_order_id) {
+    return { ok: false, reason: 'Payment does not match order' };
+  }
+
+  if (payment.status !== 'captured') {
+    return { ok: false, reason: `Payment not captured (status: ${payment.status})` };
+  }
+
+  if (payment.amount !== KUNDLI_AMOUNT_RUPEES * 100) {
+    return { ok: false, reason: 'Payment amount mismatch' };
+  }
+
+  return { ok: true, payment };
+};
+
+module.exports.KUNDLI_AMOUNT_RUPEES = KUNDLI_AMOUNT_RUPEES;

@@ -17,6 +17,8 @@ const scheduledPdfSchema = new mongoose.Schema({
     enum: ['pending', 'processing', 'sent', 'failed', 'scheduled'],
     default: 'scheduled'
   },
+  paymentId: { type: String, unique: true, sparse: true, index: true },
+  orderId:   { type: String },
   whatsappSent: { type: Boolean, default: false },
   whatsappError: { type: String, default: null },
   scheduledTime: { type: Date, required: true },
