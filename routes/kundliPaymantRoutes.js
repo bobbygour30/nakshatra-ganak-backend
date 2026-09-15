@@ -9,7 +9,7 @@ const razorpay = new Razorpay({
   key_secret: process.env.RAZORPAY_KEY_SECRET
 });
 
-const KUNDLI_AMOUNT_RUPEES = 499; // single source of truth for the price
+const KUNDLI_AMOUNT_RUPEES = 399; // single source of truth for the price
 
 // @route   POST /api/kundlipayments/create-order
 // @desc    Create Razorpay order
