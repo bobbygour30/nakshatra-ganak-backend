@@ -125,6 +125,8 @@ app.use('/api/services', require('./routes/serviceRoutes'));
 app.use('/api/service-payment', require('./routes/servicePaymentRoutes'));
 app.use('/api/contact', require('./routes/contactRoutes'));
 app.use('/api/astrology-match', require('./routes/astrologyMatch'));
+app.use('/api/premium-kundli', require('./routes/premiumKundliRoutes'));
+app.use('/api/premium-kundlipayments', require('./routes/premiumKundliPaymantRoutes'));
 
 // WhatsApp routes - scheduled send (10 min delay)
 const whatsappRoutes = require('./routes/whatsapp');
