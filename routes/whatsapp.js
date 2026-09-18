@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const ScheduledPdf = require('../models/ScheduledPdf');
+const ScheduledPremiumPdf = require('../models/ScheduledPremiumPdf'); // NEW
 const axios = require('axios');
 const cloudinary = require('cloudinary').v2;
 const mongoose = require('mongoose');
@@ -65,7 +66,7 @@ async function sendWhatsApp(phoneNumber, pdfUrl, pdfName, customerName) {
 }
 
 // ============================================================
-//  PROCESS SCHEDULED MESSAGES (Called by cron job)
+//  PROCESS SCHEDULED MESSAGES - BASIC KUNDLI (Called by cron job)
 // ============================================================
 async function processScheduledMessages() {
   try {
@@ -82,8 +83,8 @@ async function processScheduledMessages() {
       };
     }
 
-    console.log('⏰ Processing scheduled WhatsApp messages...');
-    
+    console.log('⏰ Processing scheduled WhatsApp messages (Basic)...');
+
     // Find all scheduled messages that are due and not sent
     const dueRecords = await ScheduledPdf.find({
       status: 'scheduled',
@@ -92,7 +93,7 @@ async function processScheduledMessages() {
     }).maxTimeMS(5000); // Add timeout to prevent long-running queries
 
     if (dueRecords.length === 0) {
-      console.log('📭 No scheduled messages to process');
+      console.log('📭 No scheduled messages to process (Basic)');
       return {
         success: true,
         message: 'No scheduled messages to process',
@@ -102,7 +103,7 @@ async function processScheduledMessages() {
       };
     }
 
-    console.log(`📬 Found ${dueRecords.length} scheduled messages to process`);
+    console.log(`📬 Found ${dueRecords.length} scheduled messages to process (Basic)`);
 
     let sent = 0;
     let failed = 0;
@@ -144,7 +145,7 @@ async function processScheduledMessages() {
 
       } catch (error) {
         console.error(`❌ Failed to send to ${record.userDetails.mobile}:`, error.message);
-        
+
         // If max attempts reached, mark as failed
         if (record.attempts >= record.maxAttempts) {
           record.status = 'failed';
@@ -168,7 +169,7 @@ async function processScheduledMessages() {
 
   } catch (error) {
     console.error('❌ Error processing scheduled messages:', error);
-    
+
     // Check if it's a Mongoose timeout error
     if (error.name === 'MongooseError' && error.message.includes('buffering timed out')) {
       return {
@@ -180,7 +181,7 @@ async function processScheduledMessages() {
         failed: 0
       };
     }
-    
+
     return {
       success: false,
       message: 'Failed to process scheduled messages',
@@ -193,7 +194,130 @@ async function processScheduledMessages() {
 }
 
 // ============================================================
-//  SEND WHATSAPP WITH 10 MIN DELAY (Main Route)
+//  PROCESS SCHEDULED MESSAGES - PREMIUM KUNDLI (Called by cron job)
+//  NEW: this is the piece that was completely missing before. Without
+//  it, records written to ScheduledPremiumPdf by
+//  /api/premium-kundli/generate-and-schedule were never read back out
+//  by anything, so the 10-minute WhatsApp send never fired.
+// ============================================================
+async function processScheduledPremiumMessages() {
+  try {
+    if (mongoose.connection.readyState !== 1) {
+      console.log('⚠️ Database not connected, skipping premium processing');
+      return {
+        success: false,
+        message: 'Database not connected',
+        processed: 0,
+        sent: 0,
+        failed: 0,
+        error: 'Database connection not available'
+      };
+    }
+
+    console.log('⏰ Processing scheduled WhatsApp messages (Premium)...');
+
+    const dueRecords = await ScheduledPremiumPdf.find({
+      status: 'scheduled',
+      whatsappSent: false,
+      scheduledTime: { $lte: new Date() }
+    }).maxTimeMS(5000);
+
+    if (dueRecords.length === 0) {
+      console.log('📭 No scheduled messages to process (Premium)');
+      return {
+        success: true,
+        message: 'No scheduled premium messages to process',
+        processed: 0,
+        sent: 0,
+        failed: 0
+      };
+    }
+
+    console.log(`📬 Found ${dueRecords.length} scheduled premium messages to process`);
+
+    let sent = 0;
+    let failed = 0;
+
+    for (const record of dueRecords) {
+      try {
+        if (record.attempts >= record.maxAttempts) {
+          console.log(`⚠️ Max attempts reached for ${record.userDetails.mobile}, marking as failed (Premium)`);
+          record.status = 'failed';
+          record.whatsappError = 'Max attempts reached';
+          await record.save();
+          failed++;
+          continue;
+        }
+
+        record.attempts += 1;
+        record.lastAttemptAt = new Date();
+
+        console.log(`📤 Sending premium to ${record.userDetails.mobile} (Attempt ${record.attempts}/${record.maxAttempts})`);
+
+        await sendWhatsApp(
+          record.userDetails.mobile,
+          record.pdf.cloudinaryUrl || record.pdf.url,
+          record.pdf.filename,
+          record.userDetails.fullName
+        );
+
+        record.status = 'sent';
+        record.whatsappSent = true;
+        record.sentAt = new Date();
+        await record.save();
+        sent++;
+
+        console.log(`✅ Sent premium to ${record.userDetails.mobile}`);
+
+      } catch (error) {
+        console.error(`❌ Failed to send premium to ${record.userDetails.mobile}:`, error.message);
+
+        if (record.attempts >= record.maxAttempts) {
+          record.status = 'failed';
+          record.whatsappError = error.message;
+          await record.save();
+          failed++;
+        } else {
+          await record.save();
+        }
+      }
+    }
+
+    return {
+      success: true,
+      message: `Processed ${dueRecords.length} premium messages`,
+      sent: sent,
+      failed: failed,
+      remaining: dueRecords.length - sent - failed
+    };
+
+  } catch (error) {
+    console.error('❌ Error processing scheduled premium messages:', error);
+
+    if (error.name === 'MongooseError' && error.message.includes('buffering timed out')) {
+      return {
+        success: false,
+        message: 'Database operation timed out',
+        error: 'MongoDB connection timeout',
+        processed: 0,
+        sent: 0,
+        failed: 0
+      };
+    }
+
+    return {
+      success: false,
+      message: 'Failed to process scheduled premium messages',
+      error: error.message,
+      processed: 0,
+      sent: 0,
+      failed: 0
+    };
+  }
+}
+
+// ============================================================
+//  SEND WHATSAPP WITH 10 MIN DELAY (Main Route - Basic, manual/legacy)
 // ============================================================
 router.post('/send-with-delay', async (req, res) => {
   try {
@@ -234,7 +358,7 @@ router.post('/send-with-delay', async (req, res) => {
 
     // Calculate scheduled time
     const scheduledTime = new Date(Date.now() + delayMinutes * 60 * 1000);
-    
+
     // Create scheduled record
     const record = new ScheduledPdf({
       userDetails: {
@@ -276,12 +400,12 @@ router.post('/send-with-delay', async (req, res) => {
 });
 
 // ============================================================
-//  PROCESS SCHEDULED WHATSAPP (API Endpoint)
+//  PROCESS SCHEDULED WHATSAPP (API Endpoint - Basic)
 // ============================================================
 router.post('/process-scheduled', async (req, res) => {
   try {
     const result = await processScheduledMessages();
-    
+
     if (result.success) {
       return res.json(result);
     } else {
@@ -292,6 +416,30 @@ router.post('/process-scheduled', async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Failed to process scheduled messages',
+      error: error.message
+    });
+  }
+});
+
+// ============================================================
+//  PROCESS SCHEDULED WHATSAPP (API Endpoint - Premium) - NEW
+//  Lets you manually trigger/debug premium processing the same way
+//  /process-scheduled does for basic.
+// ============================================================
+router.post('/process-scheduled-premium', async (req, res) => {
+  try {
+    const result = await processScheduledPremiumMessages();
+
+    if (result.success) {
+      return res.json(result);
+    } else {
+      return res.status(500).json(result);
+    }
+  } catch (error) {
+    console.error('❌ Error in process-scheduled-premium route:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to process scheduled premium messages',
       error: error.message
     });
   }
@@ -375,7 +523,7 @@ router.post('/send-now', async (req, res) => {
 
   } catch (error) {
     console.error('Send error:', error);
-    
+
     // Log the failure
     try {
       const { phoneNumber, pdfUrl, pdfName, customerName, email, city } = req.body;
@@ -411,7 +559,7 @@ router.post('/send-now', async (req, res) => {
 });
 
 // ============================================================
-//  CHECK STATUS
+//  CHECK STATUS (Basic)
 // ============================================================
 router.get('/status/:recordId', async (req, res) => {
   try {
@@ -424,7 +572,7 @@ router.get('/status/:recordId', async (req, res) => {
     }
 
     const record = await ScheduledPdf.findById(req.params.recordId);
-    
+
     if (!record) {
       return res.status(404).json({
         success: false,
@@ -432,7 +580,7 @@ router.get('/status/:recordId', async (req, res) => {
       });
     }
 
-    const timeRemaining = record.scheduledTime ? 
+    const timeRemaining = record.scheduledTime ?
       Math.max(0, Math.floor((new Date(record.scheduledTime) - new Date()) / 1000)) : 0;
 
     return res.json({
@@ -445,7 +593,7 @@ router.get('/status/:recordId', async (req, res) => {
       error: record.error || record.whatsappError,
       whatsappSent: record.whatsappSent,
       timeRemaining: timeRemaining, // in seconds
-      timeRemainingFormatted: timeRemaining > 0 ? 
+      timeRemainingFormatted: timeRemaining > 0 ?
         `${Math.floor(timeRemaining / 60)}m ${timeRemaining % 60}s` : 'Ready to send'
     });
 
@@ -460,7 +608,7 @@ router.get('/status/:recordId', async (req, res) => {
 });
 
 // ============================================================
-//  CANCEL SCHEDULED SEND
+//  CANCEL SCHEDULED SEND (Basic)
 // ============================================================
 router.delete('/cancel/:recordId', async (req, res) => {
   try {
@@ -473,7 +621,7 @@ router.delete('/cancel/:recordId', async (req, res) => {
     }
 
     const record = await ScheduledPdf.findById(req.params.recordId);
-    
+
     if (!record) {
       return res.status(404).json({
         success: false,
@@ -515,7 +663,7 @@ router.delete('/cancel/:recordId', async (req, res) => {
 });
 
 // ============================================================
-//  GET ALL SCHEDULED MESSAGES (Admin)
+//  GET ALL SCHEDULED MESSAGES (Admin - Basic)
 // ============================================================
 router.get('/all', async (req, res) => {
   try {
@@ -548,6 +696,38 @@ router.get('/all', async (req, res) => {
 });
 
 // ============================================================
+//  GET ALL SCHEDULED PREMIUM MESSAGES (Admin) - NEW
+// ============================================================
+router.get('/all-premium', async (req, res) => {
+  try {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        success: false,
+        message: 'Database not connected. Please try again later.'
+      });
+    }
+
+    const records = await ScheduledPremiumPdf.find()
+      .sort({ createdAt: -1 })
+      .limit(100);
+
+    return res.json({
+      success: true,
+      count: records.length,
+      records: records
+    });
+
+  } catch (error) {
+    console.error('Get all premium error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to get premium records',
+      error: error.message
+    });
+  }
+});
+
+// ============================================================
 //  TEST ROUTE
 // ============================================================
 router.get('/test', (req, res) => {
@@ -565,4 +745,9 @@ router.get('/test', (req, res) => {
   });
 });
 
-module.exports = { router, sendWhatsApp, processScheduledMessages };
+module.exports = {
+  router,
+  sendWhatsApp,
+  processScheduledMessages,
+  processScheduledPremiumMessages // NEW
+};

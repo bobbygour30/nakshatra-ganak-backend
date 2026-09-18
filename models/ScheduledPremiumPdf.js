@@ -87,6 +87,19 @@ const scheduledPremiumPdfSchema = new mongoose.Schema(
       default: 0
     },
 
+    // Added: without this, attempts >= maxAttempts comparisons in the
+    // WhatsApp processing logic compare against `undefined`, which is
+    // fragile. This mirrors the ScheduledPdf (basic) schema.
+    maxAttempts: {
+      type: Number,
+      default: 3
+    },
+
+    lastAttemptAt: {
+      type: Date,
+      default: null
+    },
+
     error: {
       type: String,
       default: null

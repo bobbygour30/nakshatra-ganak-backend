@@ -175,9 +175,9 @@ app.use((err, req, res, next) => {
 
 /* ================================
    CRON JOB - Process scheduled WhatsApp messages
+   (Basic Kundli AND Premium Kundli)
 ================================ */
 let cronJobInitialized = false;
-let isDbConnected = false;
 
 // Check database connection status
 const checkDbConnection = () => {
@@ -185,9 +185,13 @@ const checkDbConnection = () => {
 };
 
 // Function to process scheduled messages with retry
+// NOTE: now runs both the basic and premium processors every tick.
+// Previously only processScheduledMessages() (basic) was called here,
+// which is why premium Kundli WhatsApp sends never fired even though
+// records were being created in ScheduledPremiumPdf.
 async function processWithRetry(maxRetries = 3) {
   let retries = 0;
-  
+
   while (retries < maxRetries) {
     try {
       // Check if database is connected
@@ -198,28 +202,42 @@ async function processWithRetry(maxRetries = 3) {
         continue;
       }
 
-      // Import the process function
-      const { processScheduledMessages } = require('./routes/whatsapp');
-      
-      // Process scheduled messages
+      // Import the process functions
+      const { processScheduledMessages, processScheduledPremiumMessages } = require('./routes/whatsapp');
+
+      // Process basic scheduled messages
       const result = await processScheduledMessages();
-      
+
       if (result && result.success) {
         const { sent, failed, remaining } = result;
         if (sent > 0 || failed > 0) {
-          console.log(`✅ Cron job: ${sent} sent, ${failed} failed, ${remaining || 0} remaining`);
+          console.log(`✅ Cron job (Basic): ${sent} sent, ${failed} failed, ${remaining || 0} remaining`);
         } else {
-          console.log(`📭 Cron job: No scheduled messages to process`);
+          console.log(`📭 Cron job (Basic): No scheduled messages to process`);
         }
-        return result;
       } else {
-        console.error('❌ Cron job failed:', result?.message || 'Unknown error');
-        return null;
+        console.error('❌ Cron job (Basic) failed:', result?.message || 'Unknown error');
       }
+
+      // Process premium scheduled messages
+      const premiumResult = await processScheduledPremiumMessages();
+
+      if (premiumResult && premiumResult.success) {
+        const { sent, failed, remaining } = premiumResult;
+        if (sent > 0 || failed > 0) {
+          console.log(`✅ Cron job (Premium): ${sent} sent, ${failed} failed, ${remaining || 0} remaining`);
+        } else {
+          console.log(`📭 Cron job (Premium): No scheduled premium messages to process`);
+        }
+      } else {
+        console.error('❌ Cron job (Premium) failed:', premiumResult?.message || 'Unknown error');
+      }
+
+      return { result, premiumResult };
     } catch (error) {
       console.error(`❌ Cron job error (attempt ${retries + 1}):`, error.message);
       retries++;
-      
+
       if (retries < maxRetries) {
         console.log(`⏳ Retrying in 5 seconds...`);
         await new Promise(resolve => setTimeout(resolve, 5000));
@@ -233,11 +251,11 @@ async function processWithRetry(maxRetries = 3) {
 
 function initializeCronJob() {
   if (cronJobInitialized) return;
-  
+
   // Run every minute to check for scheduled messages
   cron.schedule('* * * * *', async () => {
-    console.log(`⏰ [${new Date().toISOString()}] Cron job: Processing scheduled WhatsApp messages...`);
-    
+    console.log(`⏰ [${new Date().toISOString()}] Cron job: Processing scheduled WhatsApp messages (Basic + Premium)...`);
+
     try {
       await processWithRetry(3);
     } catch (error) {
@@ -246,7 +264,7 @@ function initializeCronJob() {
   });
 
   cronJobInitialized = true;
-  console.log('✅ Cron job initialized - Running every minute');
+  console.log('✅ Cron job initialized - Running every minute (Basic + Premium)');
 }
 
 /* ================================
@@ -258,12 +276,12 @@ const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, async () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📍 http://localhost:${PORT}`);
-  console.log(`📱 WhatsApp Mode: SCHEDULED SEND (10 min delay)`);
-  
+  console.log(`📱 WhatsApp Mode: SCHEDULED SEND (10 min delay) - Basic + Premium`);
+
   // Wait for database connection before starting cron job
   let dbConnected = false;
   let attempts = 0;
-  
+
   while (!dbConnected && attempts < 10) {
     try {
       await connectDB();
@@ -277,7 +295,7 @@ const server = app.listen(PORT, async () => {
       await new Promise(resolve => setTimeout(resolve, 3000));
     }
   }
-  
+
   if (dbConnected) {
     // Initialize admin
     try {
@@ -287,13 +305,13 @@ const server = app.listen(PORT, async () => {
     } catch (error) {
       console.error("❌ Admin initialization failed:", error.message);
     }
-    
+
     // Initialize cron job
     initializeCronJob();
 
-    // Run initial check for pending scheduled messages
+    // Run initial check for pending scheduled messages (Basic + Premium)
     setTimeout(async () => {
-      console.log('🔄 Running initial check for pending scheduled messages...');
+      console.log('🔄 Running initial check for pending scheduled messages (Basic + Premium)...');
       await processWithRetry(3);
     }, 5000);
   } else {
